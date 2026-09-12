@@ -96,7 +96,7 @@ export default function App() {
 
   const demoRetry = () =>
     guard(async () => {
-      const first = await api.buyFail(2);
+      const first = await api.buyFail(services[0]?.id ?? 0);
       logSteps(first.steps);
       pushLog(`Attempt 1 charged ${money(first.chargedDollars)} (settled, response lost)`, 'PAID');
       const r = await api.retry(first.requestId, first.idempotencyKey);
@@ -458,7 +458,7 @@ export default function App() {
               <div className="panel p-5">
                 <div className="label mb-3">Guided Demo</div>
                 <div className="grid grid-cols-2 gap-2">
-                  <button className="btn-primary" onClick={() => buy(1)} disabled={busy}>1 · Buy Service ($2)</button>
+                  <button className="btn-primary" onClick={() => services[0] && buy(services[0].id)} disabled={busy || !services[0]}>1 · Buy Service ($2)</button>
                   <button className="btn-ghost" onClick={demoRetry} disabled={busy}>2 · Retry Same Request</button>
                   <button className="btn-danger" onClick={attack} disabled={busy}>3 · Attempt Overspend</button>
                   <button className="btn-violet" onClick={() => deliveries[0] && verify(deliveries[0].id)} disabled={busy || deliveries.length === 0}>4 · Verify Delivery</button>
