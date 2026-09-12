@@ -1,0 +1,16 @@
+{
+  "name": "payproof-vera",
+  "private": true,
+  "version": "1.0.0",
+  "description": "PayProof x VERA — ONE HACK 2026 W3A-1: Let AI Agents Buy Services Safely",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix web install && npm install",
+    "dev": "concurrently -n server,web -c green,cyan \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "start": "concurrently -n server,web -c green,cyan \"npm --prefix server run start\" \"npm --prefix web run preview\"",
+    "test": "npm --prefix server test",
+    "build": "npm --prefix web run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
