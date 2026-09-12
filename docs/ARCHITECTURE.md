@@ -80,3 +80,24 @@ sha256`, `hashValid`). `finalStatus` ∈ `VERIFIED | FAILED | PENDING | REJECTED
 - Browser UI: not exercised — the browser tool was misconfigured
   (`browser-use` plugin unregistered) during this session. Core behavior was
   exercised over live HTTP instead.
+## §18 On-chain settlement path (optional increment, implemented)
+
+`contracts/PayProofEscrow.sol` (Solidity ^0.8.24, compiles clean under solc
+with 200-run optimizer) mirrors the off-chain engine's three guarantees on
+EVM:
+
+| Off-chain enforcement engine | On-chain equivalent |
+|---|---|
+| Hard budget cap in `policy` + `engine.ts` | `budgetCap[payer]` checked inside `authorize()` — the only path to settle; agent cannot bypass |
+| Idempotency key dedup in `/api/payment` + `/api/retry` | `intentOfKey[payer][key]` — same key returns the SAME intent (`DuplicateIntent`), never a second charge |
+| VERA hash verification (`vera.ts`: recompute, don't trust) | `markDelivered(id, deliveryHash)` commits SHA-256; `verifyDelivery(id, recomputedHash)` compares commitments on-chain |
+
+Key design point carried over: the human (`setBudgetCap`, `msg.sender`)
+holds the key; the agent has none. `spent[payer]` is incremented exactly
+once, in `settle()` — mirroring the server's single-charge guarantee.
+
+Verified: `solc` compile → OK, 22 ABI entries, 2883 B bytecode,
+functions: authorize, budgetCap, createIntent, intentOfKey, intents,
+markDelivered, nextId, settle, spent, verifyDelivery.
+Deployment/testnet wiring is left as future work (demo runs the
+deterministic off-chain engine).
