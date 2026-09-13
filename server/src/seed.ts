@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { seedCompromisedAgent } from './attacks';
 import { asNumber, nowIso } from './db';
 
 export const SEED = {
@@ -36,6 +37,9 @@ export function seed(db: DatabaseSync): void {
     agentId, Math.round(SEED.budgetDollars * 100), 'USD',
   );
 
+  // Register the Compromised-Agent for the Attack Lab (own Ed25519 keypair).
+  seedCompromisedAgent(db, SEED.userName, 10, 4);
+
   db.prepare('INSERT INTO audit_events (type, description, metadata, timestamp) VALUES (?, ?, ?, ?)').run(
     'POLICY_CREATED',
     `Hard budget policy created for ${SEED.agentName}: $${SEED.budgetDollars} cap`,
@@ -45,7 +49,7 @@ export function seed(db: DatabaseSync): void {
 }
 
 export function resetAll(db: DatabaseSync): void {
-  const tables = ['audit_events', 'deliveries', 'payments', 'policies', 'services', 'providers', 'agents', 'users'];
+  const tables = ['nonce_registry', 'audit_events', 'deliveries', 'payments', 'policies', 'services', 'providers', 'agents', 'users'];
   for (const t of tables) db.exec(`DELETE FROM ${t};`);
   seed(db);
 }

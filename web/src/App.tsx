@@ -88,6 +88,7 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const [attackAmount, setAttackAmount] = useState('8');
   const [attackResult, setAttackResult] = useState<any>(null);
+  const [labResult, setLabResult] = useState<any>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [lastRetry, setLastRetry] = useState<{ requestId: string; idempotencyKey: string } | null>(null);
   // Apple Pay-style sheet state
@@ -442,6 +443,65 @@ export default function App() {
                 <button className="btn-danger" onClick={attack} disabled={busy}>Attempt Overspend</button>
               </div>
               <p className="text-xs text-pp-mut mt-3">The agent is allowed to TRY. The enforcement layer — not the agent — decides.</p>
+            </div>
+
+            <div className="panel p-5">
+              <div className="label mb-1">PayVERA Attack Lab — 8 attacks, real firewall, zero simulation</div>
+              <p className="text-xs text-pp-mut mb-4">Every attack below runs the same backend firewall as real payments. Blocked = $0 charged, no wallet transaction submitted.</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { id: 'compromised_agent', label: 'Compromised Agent', desc: 'Hijacked agent demands $8' },
+                  { id: 'unknown_agent', label: 'Unknown Agent', desc: 'Never registered with PayVERA' },
+                  { id: 'spoofed_identity', label: 'Spoofed Identity', desc: 'Claims agent ID, wrong key' },
+                  { id: 'fake_client_budget', label: 'Fake Client Budget', desc: 'Client lies: budget 999999' },
+                  { id: 'policy_expired', label: 'Expired Policy', desc: 'Authority lapsed' },
+                  { id: 'restricted_service', label: 'Restricted Service', desc: 'Service outside allowlist' },
+                  { id: 'replay', label: 'Replay Attack', desc: 'Reuses consumed signature' },
+                  { id: 'destination_hijack', label: 'Destination Hijack', desc: 'Redirect to attacker wallet' },
+                ].map((a) => (
+                  <button
+                    key={a.id}
+                    className="text-left border border-pp-line rounded-xl p-3 hover:border-pp-red/60 hover:bg-pp-red/5 transition-colors disabled:opacity-40"
+                    disabled={busy}
+                    onClick={() => guard(async () => {
+                      const res = await api.attackLab(a.id, a.id === 'compromised_agent' ? 8 : Number(attackAmount) || 8);
+                      setLabResult(res);
+                      await refresh();
+                      return res;
+                    })}
+                  >
+                    <div className="text-sm font-semibold text-pp-ink">{a.label}</div>
+                    <div className="text-[11px] text-pp-mut mt-0.5">{a.desc}</div>
+                    <div className="mt-2 text-[10px] font-mono text-pp-red">EXECUTE →</div>
+                  </button>
+                ))}
+              </div>
+              {labResult && (
+                <div className={`mt-4 rounded-xl p-4 font-mono border-2 ${labResult.verdict?.allowed ? 'border-pp-green/50 bg-pp-green/5' : 'border-pp-red/50 bg-pp-red/5'}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-bold">{labResult.attack.replace(/_/g, ' ').toUpperCase()}</span>
+                    <span className={`text-lg font-bold ${labResult.verdict?.allowed ? 'text-pp-green' : 'text-pp-red'}`}>
+                      {labResult.verdict?.decision}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs text-pp-mut">Reason: {labResult.verdict?.reason}</div>
+                  <div className="mt-1 text-sm">Charged: <span className={labResult.chargedCents ? 'text-pp-green' : 'text-pp-red font-bold'}>${(labResult.chargedCents / 100).toFixed(2)}</span> · Wallet tx: <span className="text-pp-amber">{labResult.walletTransaction}</span> · MetaMask popup: <span className="text-pp-amber">{labResult.metaMaskOpened ? 'YES' : 'NO'}</span></div>
+                  {labResult.verdict?.clientClaimsIgnored?.length > 0 && (
+                    <div className="mt-1 text-xs text-pp-amber">Ignored client lies: {labResult.verdict.clientClaimsIgnored.join(', ')}</div>
+                  )}
+                  {labResult.verdict?.checks?.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {labResult.verdict.checks.map((c: any, i: number) => (
+                        <div key={i} className="text-xs flex gap-2">
+                          <span className={c.result === 'PASS' ? 'text-pp-green' : c.result === 'FAIL' ? 'text-pp-red' : 'text-pp-mut'}>{c.result === 'PASS' ? '✓' : c.result === 'FAIL' ? '✗' : '–'}</span>
+                          <span className="text-pp-mut w-24">{c.check}</span>
+                          <span>{c.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {attackResult && (

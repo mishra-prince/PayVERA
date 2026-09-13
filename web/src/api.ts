@@ -45,4 +45,6 @@ export const api = {
   tamper: (deliveryId: number): Promise<any> => fetch('/api/attack/tamper', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deliveryId }) }).then(j),
   receipt: (paymentId: number): Promise<{ receipt: Receipt }> => fetch(`/api/receipt/${paymentId}`).then(j),
   service402: (serviceId: number, requestId: string): Promise<Response> => fetch(`/api/service/${serviceId}?requestId=${requestId}`),
+  attackLab: (attack: string, amountDollars: number, extra: Record<string, unknown> = {}): Promise<any> => fetch('/api/attack-lab/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ attack, amountDollars, ...extra }) }).then(j),
+  attackLabAgents: (): Promise<{ agents: { id: number; name: string; agentExternalId: string | null; status: string; maxTxDollars: number | null; publicKeyFingerprint: string | null }[] }> => fetch('/api/attack-lab/agents').then(j),
 };

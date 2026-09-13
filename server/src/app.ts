@@ -8,6 +8,8 @@ import {
 } from './engine';
 import { findPaymentByIdempotencyKey, findPaymentByRequestId, createPayment, setPaymentStatus, STATES, getPayment } from './payments';
 import { resetAll } from './seed';
+import { attackCompromisedAgent, attackUnknownAgent, attackSpoofedIdentity, attackFakeClientBudget, attackExpiredPolicy, attackRestrictedService, attackReplay, attackDestinationHijack, type AttackResult } from './attacks';
+import { createHash } from 'node:crypto';
 
 const REJECTED_LIKE = new Set(['REQUESTED', 'PAYMENT_REQUIRED', 'REJECTED_BUDGET', 'REJECTED_DUPLICATE', 'FAILED', 'EXPIRED']);
 
@@ -163,6 +165,34 @@ export function createApp(db: DatabaseSync): Express {
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
     }
+  });
+
+  // ---------- PAYVERA ATTACK LAB (real firewall, real enforcement) ----------
+  app.post('/api/attack-lab/run', (req, res) => {
+    const kind = String(req.body?.attack ?? '');
+    const amountDollars = req.body?.amountDollars != null ? Number(req.body.amountDollars) : 8;
+    try {
+      let result: AttackResult;
+      switch (kind) {
+        case 'compromised_agent':      result = attackCompromisedAgent(db, { amountDollars, serviceName: String(req.body?.serviceName ?? 'Premium Analysis'), providerName: req.body?.providerName, fakeClientBudget: req.body?.fakeClientBudget, destination: req.body?.destination }); break;
+        case 'unknown_agent':          result = attackUnknownAgent(db, { amountDollars }); break;
+        case 'spoofed_identity':       result = attackSpoofedIdentity(db, { amountDollars }); break;
+        case 'fake_client_budget':     result = attackFakeClientBudget(db, { amountDollars }); break;
+        case 'policy_expired':         result = attackExpiredPolicy(db, { amountDollars }); break;
+        case 'restricted_service':     result = attackRestrictedService(db, { amountDollars, serviceName: String(req.body?.serviceName ?? 'Unlisted Service') }); break;
+        case 'replay':                 result = attackReplay(db, { amountDollars }); break;
+        case 'destination_hijack':     result = attackDestinationHijack(db, { amountDollars }); break;
+        default: return res.status(400).json({ error: `unknown attack: ${kind}` });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/attack-lab/agents', (_req, res) => {
+    const rows = db.prepare('SELECT id, name, agent_external_id, status, max_tx_cents, public_key FROM agents ORDER BY id').all() as any[];
+    res.json({ agents: rows.map((r) => ({ id: asNumber(r.id), name: r.name, agentExternalId: r.agent_external_id, status: r.status, maxTxDollars: r.max_tx_cents != null ? dollars(asNumber(r.max_tx_cents)) : null, publicKeyFingerprint: r.public_key ? createHash('sha256').update(String(r.public_key)).digest('hex').slice(0, 16) : null })) });
   });
 
   app.get('/api/deliveries', (_req, res) => {
