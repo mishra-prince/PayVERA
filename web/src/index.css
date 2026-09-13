@@ -3,7 +3,41 @@
 @tailwind utilities;
 
 :root {
+  /* Light — Apple.com design language (awesome-design-md apple/DESIGN.md) */
+  --pp-bg: #f5f5f7;        /* canvas parchment */
+  --pp-panel: #ffffff;     /* utility card canvas */
+  --pp-line: #e0e0e0;      /* hairline */
+  --pp-ink: #1d1d1f;       /* ink */
+  --pp-mut: #7a7a7a;       /* ink muted 48% */
+  --pp-green: #34c759;     /* Apple green */
+  --pp-red: #ff3b30;       /* Apple red */
+  --pp-amber: #ff9500;     /* Apple orange */
+  --pp-blue: #0066cc;      /* Action Blue (primary) */
+  --pp-blueFocus: #0071e3;
+  --pp-blueDark: #2997ff;
+  --pp-violet: #5e5ce6;    /* iOS indigo */
   --pp-glass: rgba(245, 245, 247, 0.8);
+  --pp-tab-pill: #ffffff;
+  --pp-sheet: #ffffff;
+}
+
+.dark {
+  /* Dark — Apple dark appearance (HIG dark-mode.md: true black canvas, elevated #1c1c1e cards) */
+  --pp-bg: #000000;
+  --pp-panel: #1c1c1e;
+  --pp-line: #38383a;
+  --pp-ink: #f5f5f7;
+  --pp-mut: #98989d;
+  --pp-green: #30d158;
+  --pp-red: #ff453a;
+  --pp-amber: #ff9f0a;
+  --pp-blue: #0a84ff;      /* Apple dark-mode blue */
+  --pp-blueFocus: #2997ff;
+  --pp-blueDark: #64d2ff;
+  --pp-violet: #bf5af2;
+  --pp-glass: rgba(10, 10, 10, 0.75);
+  --pp-tab-pill: #2c2c2e;
+  --pp-sheet: #1c1c1e;
 }
 
 @layer components {
@@ -12,18 +46,29 @@
   .btn { @apply px-[22px] py-[11px] rounded-full font-normal text-[15px] leading-none transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed; }
   .btn-primary { @apply btn bg-pp-blue text-white hover:bg-pp-blueFocus; }
   .btn-danger { @apply btn bg-pp-red text-white hover:brightness-110; }
-  .btn-ghost { @apply btn bg-transparent text-pp-blue border border-pp-line hover:bg-pp-blue/5; }
+  .btn-ghost { @apply btn bg-transparent text-pp-blue border border-pp-line hover:opacity-70; }
   .btn-violet { @apply btn bg-pp-violet text-white hover:brightness-110; }
-  /* Apple Pay black button: black capsule, white  Pay glyph (HIG apple-pay.md › Button styles) */
-  .btn-apay { @apply btn bg-black text-white hover:brightness-125; }
+  /* Apple Pay button: black capsule in light mode; white capsule in dark (HIG apple-pay.md › Button styles) */
+  .btn-apay { @apply btn bg-black text-white dark:bg-white dark:text-black; }
   .chip { @apply inline-block px-2 py-0.5 rounded-md text-[11px] font-medium; }
   .label { @apply text-[11px] uppercase tracking-[0.06em] text-pp-mut font-medium; }
-  /* Frosted sticky bar: Parchment 80% + blur(20px) saturate(180%) */
-  .frosted { @apply backdrop-blur-[20px]; background: var(--pp-glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  /* Frosted sticky bar (apple.com recipe) */
+  .frosted { background: var(--pp-glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+  .tab-pill { background: var(--pp-tab-pill); }
+  .tab-pill-bg { background: var(--pp-tab-pill); }
+  .sheet-surface { background: var(--pp-sheet); }
+  .sheet-surface-bg { background: var(--pp-sheet); }
+  .btn-apay-bg { background: #000; color: #fff; }
+  .dark .btn-apay-bg { background: #fff; color: #000; }
 }
+
+html { color-scheme: light; }
+.dark html, html.dark { color-scheme: dark; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.022em; /* Apple body letterspacing */
+  background: var(--pp-bg);
+  color: var(--pp-ink);
 }

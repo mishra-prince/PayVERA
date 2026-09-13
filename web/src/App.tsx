@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion, useSpring, useTransform, useMotionValue, animate } from 'framer-motion';
 import { api, type AuditEvent, type Dashboard, type Delivery, type Receipt, type Step, type Service } from './api';
+import { useTheme } from './useTheme';
 
 type Tab = 'overview' | 'agent' | 'market' | 'stream' | 'attack' | 'verify' | 'audit' | 'demo';
 
@@ -37,6 +38,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function App() {
+  const [theme, toggleTheme] = useTheme();
   const [tab, setTab] = useState<Tab>('overview');
   const [dash, setDash] = useState<Dashboard | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -104,7 +106,13 @@ export default function App() {
 
   // Apple Pay-style flow: confirm sheet -> processing -> done, backed by the real API
   const buyWithSheet = (s: Service) => {
+    // Re-fetch dashboard right before opening the sheet: service IDs are re-seeded
+    // on every Reset, so a stale list would send a dead ID (SERVICE_NOT_FOUND).
     setSheet({ phase: 'confirm', service: s });
+    api.dashboard().then((d) => {
+      const fresh = d?.services?.find((x: Service) => x.name === s.name);
+      if (fresh && fresh.id !== s.id) setSheet((cur) => (cur?.phase === 'confirm' ? { ...cur, service: fresh } : cur));
+    }).catch(() => {});
   };
 
   const confirmSheetBuy = () => {
@@ -222,6 +230,25 @@ export default function App() {
             <div className="text-[11px] text-pp-mut">Remaining</div>
             <div className="text-sm font-bold text-pp-green">{money(policy?.remainingDollars)}</div>
           </div>
+          <button
+            className="w-9 h-9 rounded-full border border-pp-line flex items-center justify-center hover:opacity-70 transition-opacity"
+            onClick={toggleTheme}
+            aria-label="Toggle appearance"
+            title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={theme}
+                initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
+                transition={{ duration: 0.2 }}
+                className="text-[17px] leading-none"
+              >
+                {theme === 'dark' ? '☀️' : '🌙'}
+              </motion.span>
+            </AnimatePresence>
+          </button>
           <button className="btn-ghost" onClick={reset} disabled={busy}>Reset</button>
         </div>
       </header>
@@ -236,7 +263,7 @@ export default function App() {
             {tab === t.id && (
               <motion.span
                 layoutId="tab-pill"
-                className="absolute inset-0 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-pp-line/60"
+                className="absolute inset-0 rounded-full tab-pill-bg shadow-[0_0_0_0_transparent] dark:shadow-none border border-pp-line/60"
                 transition={{ type: 'spring', stiffness: 500, damping: 38 }}
               />
             )}
@@ -666,7 +693,7 @@ function ApplePaySheet({
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={sheet.phase === 'processing' ? undefined : onClose} />
       <motion.div
-        className="relative w-full sm:max-w-sm bg-white rounded-t-[18px] sm:rounded-[18px] shadow-[0_10px_40px_rgba(0,0,0,0.18)] overflow-hidden"
+        className="relative w-full sm:max-w-sm sheet-surface-bg rounded-t-[18px] sm:rounded-[18px] shadow-[0_10px_40px_rgba(0,0,0,0.18)] overflow-hidden"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%', transition: { duration: 0.25, ease: [0.32, 0, 1, 1] } }}
@@ -742,7 +769,7 @@ function SheetBody({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             onClick={onConfirm}
-            className="w-full py-3.5 rounded-[12px] font-semibold text-[15px] bg-black text-white hover:brightness-[1.35] active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-[12px] font-semibold text-[15px] btn-apay-bg hover:opacity-85 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ marginTop: -1 }}>
               <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.03 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.1zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/>
