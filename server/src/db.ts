@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS agents (
 
 CREATE TABLE IF NOT EXISTS providers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  destination TEXT
 );
 
 CREATE TABLE IF NOT EXISTS services (
@@ -101,6 +102,7 @@ const MIGRATIONS: { table: string; column: string; ddl: string }[] = [
   { table: 'payments', column: 'owner_wallet', ddl: 'ALTER TABLE payments ADD COLUMN owner_wallet TEXT' },
   { table: 'payments', column: 'tx_hash', ddl: 'ALTER TABLE payments ADD COLUMN tx_hash TEXT' },
   { table: 'payments', column: 'network', ddl: 'ALTER TABLE payments ADD COLUMN network TEXT' },
+  { table: 'providers', column: 'destination', ddl: 'ALTER TABLE providers ADD COLUMN destination TEXT' },
 ];
 
 export function openDb(path = ':memory:'): DatabaseSync {

@@ -174,7 +174,7 @@ export function createApp(db: DatabaseSync): Express {
     try {
       let result: AttackResult;
       switch (kind) {
-        case 'compromised_agent':      result = attackCompromisedAgent(db, { amountDollars, serviceName: String(req.body?.serviceName ?? 'Premium Analysis'), providerName: req.body?.providerName, fakeClientBudget: req.body?.fakeClientBudget, destination: req.body?.destination }); break;
+        case 'compromised_agent':      result = attackCompromisedAgent(db, { amountDollars, serviceName: String(req.body?.serviceName ?? 'AI Translation'), providerName: req.body?.providerName, fakeClientBudget: req.body?.fakeClientBudget, destination: req.body?.destination }); break;
         case 'unknown_agent':          result = attackUnknownAgent(db, { amountDollars }); break;
         case 'spoofed_identity':       result = attackSpoofedIdentity(db, { amountDollars }); break;
         case 'fake_client_budget':     result = attackFakeClientBudget(db, { amountDollars }); break;
@@ -216,6 +216,13 @@ export function createApp(db: DatabaseSync): Express {
   app.get('/api/dashboard', (_req, res) => {
     const agent = db.prepare('SELECT * FROM agents ORDER BY id LIMIT 1').get() as any;
     const user = db.prepare('SELECT * FROM users ORDER BY id LIMIT 1').get() as any;
+    // Aggregate across ALL agents under this owner (main agent + Compromised-Agent etc.)
+    const owners = db.prepare('SELECT id FROM users ORDER BY id').all() as any[];
+    const ownerIds = owners.map((u) => asNumber(u.id));
+    const agg = db.prepare(
+      `SELECT SUM(p.max_budget_cents) AS maxC, SUM(p.spent_cents) AS spentC
+       FROM policies p JOIN agents a ON a.id = p.agent_id WHERE a.user_id IN (${ownerIds.map(() => '?').join(',')})`,
+    ).get(...ownerIds) as any;
     const policy = getPolicy(db, asNumber(agent.id));
     const payments = db.prepare(
       `SELECT p.*, s.name AS service_name, pr.name AS provider_name, d.verification_status, d.id AS delivery_id
@@ -224,17 +231,19 @@ export function createApp(db: DatabaseSync): Express {
     ).all() as any[];
 
     const settled = payments.filter((p) => ['PAID', 'DELIVERED', 'VERIFIED'].includes(p.status));
+    const maxC = asNumber(agg?.maxC) || asNumber(policy?.maxBudgetCents);
+    const spentC = asNumber(agg?.spentC);
     res.json({
       user: { name: user.name },
       agent: { id: asNumber(agent.id), name: agent.name, status: agent.status },
-      policy: policy ? {
-        maxBudgetDollars: dollars(policy.maxBudgetCents),
-        spentDollars: dollars(policy.spentCents),
-        remainingDollars: dollars(policy.remainingCents),
-        utilizationPct: policy.maxBudgetCents === 0 ? 0 : Math.round((policy.spentCents / policy.maxBudgetCents) * 100),
-        currency: policy.currency,
-        active: policy.active,
-      } : null,
+      policy: {
+        maxBudgetDollars: dollars(maxC),
+        spentDollars: dollars(spentC),
+        remainingDollars: dollars(maxC - spentC),
+        utilizationPct: maxC === 0 ? 0 : Math.round((spentC / maxC) * 100),
+        currency: policy?.currency ?? 'USD',
+        active: policy?.active ?? true,
+      },
       counts: {
         settledPayments: settled.length,
         verifiedDeliveries: payments.filter((p) => p.verification_status === 'VERIFIED').length,

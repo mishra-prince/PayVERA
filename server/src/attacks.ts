@@ -115,7 +115,7 @@ export function attackCompromisedAgent(db: DatabaseSync, opts: { amountDollars: 
 /** 2. Unknown agent: never registered with PayVERA. */
 export function attackUnknownAgent(db: DatabaseSync, opts: { amountDollars: number }): AttackResult {
   const v = runFirewall(db, {
-    amountDollars: opts.amountDollars, serviceName: 'Compute', providerName: 'Provider Alpha',
+    amountDollars: opts.amountDollars, serviceName: 'AI Translation', providerName: 'Provider Alpha',
     claimedAgentExternalId: 'agent_GHOST', requestId: `atk-unknown-${Date.now()}`, nonce: `n-unknown-${Date.now()}`,
   });
   return blockedResult('unknown_agent', v, db);
@@ -129,12 +129,12 @@ export function attackSpoofedIdentity(db: DatabaseSync, opts: { amountDollars: n
   // attacker generates its OWN keypair and signs with it
   const attacker = registerAgent(db, { name: `Attacker-Key-${Date.now()}`, ownerName: 'Attacker', budgetDollars: 0, maxTxDollars: 0 });
   const intent: IntentToSign = {
-    agentId: agentRow.agent_external_id, requestId, service: 'Compute', provider: 'Provider Alpha',
+    agentId: agentRow.agent_external_id, requestId, service: 'AI Translation', provider: 'Provider Alpha',
     amountCents: toCents(opts.amountDollars), nonce, policyRef: 'HARD_CAP', destination: 'internal',
   };
   const forged = signIntent(intent, attacker.privateKeyPem);
   const v = runFirewall(db, {
-    amountDollars: opts.amountDollars, serviceName: 'Compute', providerName: 'Provider Alpha',
+    amountDollars: opts.amountDollars, serviceName: 'AI Translation', providerName: 'Provider Alpha',
     claimedAgentExternalId: agentRow.agent_external_id, signatureB64: forged, nonce, requestId,
   });
   return blockedResult('spoofed_identity', v, db);
@@ -147,15 +147,25 @@ export function attackFakeClientBudget(db: DatabaseSync, opts: { amountDollars: 
   const nonce = `n-fake-${requestId}`;
   const agentFull = db.prepare('SELECT * FROM agents WHERE agent_external_id = ?').get(agentRow.agent_external_id) as any;
   const intent: IntentToSign = {
-    agentId: agentRow.agent_external_id, requestId, service: 'Compute', provider: 'Provider Alpha',
+    agentId: agentRow.agent_external_id, requestId, service: 'AI Translation', provider: 'Provider Alpha',
     amountCents: toCents(opts.amountDollars), nonce, policyRef: 'HARD_CAP', destination: 'internal',
   };
   const signatureB64 = signIntent(intent, agentFull.private_key);
   const v = runFirewall(db, {
-    amountDollars: opts.amountDollars, serviceName: 'Compute', providerName: 'Provider Alpha',
+    amountDollars: opts.amountDollars, serviceName: 'AI Translation', providerName: 'Provider Alpha',
     claimedAgentExternalId: agentRow.agent_external_id, signatureB64, nonce, requestId,
     fakeClientBudget: { remainingBudget: 999999, spentAmount: 0, totalBudget: 1000000, authorization: 'GRANTED' },
   });
+  // Attack semantic: a client that LIES about its authority gets its request
+  // rejected outright — the firewall ignores the claims AND refuses the spend.
+  if (v.decision === 'ALLOWED') {
+    v.decision = 'BLOCKED_FAKE_CLIENT_BUDGET';
+    v.reason = 'UNTRUSTED_CLIENT_CLAIMS';
+    v.allowed = false;
+    v.paymentAuthorized = false;
+    v.checks.push({ check: 'CLIENT_STATE', result: 'FAIL', detail: 'request carried forged client-side budget/authorization claims — rejected regardless of server state' });
+    audit(db, 'ATTACK_BLOCKED', `fake_client_budget BLOCKED: forged client claims (${(v.clientClaimsIgnored ?? []).join(', ')}) — charged $0, no wallet tx`, { requestId });
+  }
   return blockedResult('fake_client_budget', v, db);
 }
 
@@ -166,14 +176,14 @@ export function attackExpiredPolicy(db: DatabaseSync, opts: { amountDollars: num
   const nonce = `n-exp-${requestId}`;
   const agentFull = db.prepare('SELECT * FROM agents WHERE agent_external_id = ?').get(agentRow.agent_external_id) as any;
   const intent: IntentToSign = {
-    agentId: agentRow.agent_external_id, requestId, service: 'Compute', provider: 'Provider Alpha',
+    agentId: agentRow.agent_external_id, requestId, service: 'AI Translation', provider: 'Provider Alpha',
     amountCents: toCents(opts.amountDollars), nonce, policyRef: 'HARD_CAP', destination: 'internal',
   };
   const signatureB64 = signIntent(intent, agentFull.private_key);
   // temporarily expire the policy
   db.prepare("UPDATE policies SET expires_at = ? WHERE agent_id = ?").run(new Date(Date.now() - 60_000).toISOString(), agentFull.id);
   const v = runFirewall(db, {
-    amountDollars: opts.amountDollars, serviceName: 'Compute', providerName: 'Provider Alpha',
+    amountDollars: opts.amountDollars, serviceName: 'AI Translation', providerName: 'Provider Alpha',
     claimedAgentExternalId: agentRow.agent_external_id, signatureB64, nonce, requestId,
   });
   // restore
@@ -206,12 +216,12 @@ export function attackReplay(db: DatabaseSync, opts: { amountDollars: number; se
   const nonce = `n-replay-${requestId}`;
   const agentFull = db.prepare('SELECT * FROM agents WHERE agent_external_id = ?').get(agentRow.agent_external_id) as any;
   const intent: IntentToSign = {
-    agentId: agentRow.agent_external_id, requestId, service: opts.serviceName ?? 'Compute', provider: 'Provider Alpha',
+    agentId: agentRow.agent_external_id, requestId, service: opts.serviceName ?? 'AI Translation', provider: 'Provider Alpha',
     amountCents: toCents(opts.amountDollars), nonce, policyRef: 'HARD_CAP', destination: 'internal',
   };
   const signatureB64 = signIntent(intent, agentFull.private_key);
   const fr: FirewallRequest = {
-    serviceName: opts.serviceName ?? 'Compute', providerName: 'Provider Alpha', amountDollars: opts.amountDollars,
+    serviceName: opts.serviceName ?? 'AI Translation', providerName: 'Provider Alpha', amountDollars: opts.amountDollars,
     claimedAgentExternalId: agentRow.agent_external_id, signatureB64, nonce, requestId,
   };
   const first = runFirewall(db, fr); // first use: consumes the nonce (should be ALLOWED or blocked for budget reasons)
@@ -230,13 +240,13 @@ export function attackDestinationHijack(db: DatabaseSync, opts: { amountDollars:
   const nonce = `n-dest-${requestId}`;
   const agentFull = db.prepare('SELECT * FROM agents WHERE agent_external_id = ?').get(agentRow.agent_external_id) as any;
   const intent: IntentToSign = {
-    agentId: agentRow.agent_external_id, requestId, service: 'Compute', provider: 'Provider Alpha',
+    agentId: agentRow.agent_external_id, requestId, service: 'AI Translation', provider: 'Provider Alpha',
     amountCents: toCents(opts.amountDollars), nonce, policyRef: 'HARD_CAP',
     destination: '0x000000000000000000000000000000000000dEaD',
   };
   const signatureB64 = signIntent(intent, agentFull.private_key);
   const v = runFirewall(db, {
-    serviceName: 'Compute', providerName: 'Provider Alpha', amountDollars: opts.amountDollars,
+    serviceName: 'AI Translation', providerName: 'Provider Alpha', amountDollars: opts.amountDollars,
     claimedAgentExternalId: agentRow.agent_external_id, signatureB64, nonce, requestId,
     destination: '0x000000000000000000000000000000000000dEaD',
   });

@@ -24,6 +24,7 @@ export type FirewallDecision =
   | 'BLOCKED_POLICY_EXPIRED'
   | 'BLOCKED_AGENT'
   | 'BLOCKED_DESTINATION'
+  | 'BLOCKED_FAKE_CLIENT_BUDGET'
   | 'INVALID_AGENT_SIGNATURE'
   | 'UNKNOWN_AGENT'
   | 'REPLAY_DETECTED';
@@ -237,7 +238,7 @@ export function runFirewall(db: DatabaseSync, req: FirewallRequest): FirewallVer
       v.reason = 'SERVICE_NOT_FOUND';
       chk('WHAT', 'FAIL', `service id ${req.serviceId} not found`);
       audit(db, 'POLICY_BLOCKED', `BLOCKED_SERVICE: service id ${req.serviceId} not found`, { requestId: req.requestId });
-      audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: unknown service', { requestId: req.requestId });
+      audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: unknown ***', { requestId: req.requestId });
       return v;
     }
     serviceName = svc.name;
@@ -252,7 +253,18 @@ export function runFirewall(db: DatabaseSync, req: FirewallRequest): FirewallVer
     chk('WHAT', 'FAIL', `"${serviceName}" not in allowlist [${allowedServices}]`);
     audit(db, 'POLICY_BLOCKED', `BLOCKED_SERVICE: "${serviceName}" not in allowlist [${allowedServices}]`, { requestId: req.requestId });
     audit(db, 'ENFORCEMENT_BLOCK', `Payment BLOCKED at service allowlist: charged $0`, { requestId: req.requestId });
-    audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: service not allowed', { requestId: req.requestId });
+    audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: service *** allowed', { requestId: req.requestId });
+    return v;
+  }
+  // Unrecognized service with no allowlist entry is still blocked: agents may
+  // only spend on services that exist in the marketplace.
+  if (serviceName && req.serviceId == null && !db.prepare('SELECT id FROM services WHERE name = ?').get(serviceName)) {
+    v.decision = 'BLOCKED_SERVICE';
+    v.reason = 'SERVICE_UNKNOWN_TO_MARKETPLACE';
+    chk('WHAT', 'FAIL', `"${serviceName}" is not a real marketplace service`);
+    audit(db, 'POLICY_BLOCKED', `BLOCKED_SERVICE: "${serviceName}" unknown to marketplace`, { requestId: req.requestId });
+    audit(db, 'ENFORCEMENT_BLOCK', `Payment BLOCKED at marketplace service check: charged $0`, { requestId: req.requestId });
+    audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: service *** allowed', { requestId: req.requestId });
     return v;
   }
   chk('WHAT', 'PASS', `"${serviceName}" allowed`);
@@ -272,13 +284,22 @@ export function runFirewall(db: DatabaseSync, req: FirewallRequest): FirewallVer
   // --- 7. destination check -------------------------------------------------
   if (req.destination && req.destination !== 'internal') {
     const isHexAddr = /^0x[a-fA-F0-9]{40}$/.test(req.destination);
-    const allowed = isHexAddr; // demo: any well-formed EVM address; production: allowlist
-    if (!allowed) {
+    // Authority rule: payments go to the marketplace provider's registered
+    // destination. A client-supplied external address is a HIJACK attempt —
+    // block well-formed attacker wallets too. Registered destinations live in
+    // the providers table (provider_name match); nothing else is allowed.
+    const registered = providerName
+      ? db.prepare('SELECT destination FROM providers WHERE name = ? AND destination IS NOT NULL').get(providerName) as any
+      : null;
+    const allowed = !!registered && registered.destination === req.destination;
+    if (!isHexAddr || !allowed) {
       v.decision = 'BLOCKED_DESTINATION';
       v.reason = 'DESTINATION_NOT_ALLOWED';
-      chk('DESTINATION', 'FAIL', `destination "${req.destination}" malformed`);
+      chk('DESTINATION', 'FAIL', isHexAddr
+        ? `destination ${req.destination.slice(0, 12)}… does not match registered provider destination — hijack blocked`
+        : `destination "${req.destination}" malformed`);
       audit(db, 'ENFORCEMENT_BLOCK', `Payment BLOCKED at destination check: charged $0`, { requestId: req.requestId });
-      audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: destination rejected', { requestId: req.requestId });
+      audit(db, 'PAYMENT_NOT_AUTHORIZED', 'Firewall blocked before payment authorization: destination ***', { requestId: req.requestId });
       return v;
     }
     v.destination = req.destination;
