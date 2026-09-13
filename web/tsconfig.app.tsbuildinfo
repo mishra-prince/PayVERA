@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/useTheme.ts"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/OnChainTab.tsx","./src/api.ts","./src/escrowBytecode.ts","./src/main.tsx","./src/uiParts.tsx","./src/useTheme.ts","./src/wallet.ts"],"version":"5.9.3"}

@@ -1,106 +1,124 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title PayVeraEscrow
-/// @notice Minimal on-chain settlement layer for PayVERA (ONE HACK 2026 W3A-1).
-///         Mirrors the off-chain enforcement engine: a hard per-agent budget cap that
-///         CANNOT be bypassed by the agent, idempotent payment intents (retry can never
-///         double-charge), and VERA-style delivery proof via SHA-256 commitment.
-///         The off-chain engine (server/src/engine.ts) is the source of truth for the
-///         demo; this contract is the optional §18 settlement path.
+/// @title PayVeraEscrow (v2 — real Sepolia deployment)
+/// @notice On-chain financial authority for PayVERA (ONE HACK 2026 W3A-1).
+///         Owner grants spending authority; authorized agents pay merchants.
+///         THE CONTRACT IS THE FINAL ENFORCEMENT LAYER: the hard cap, max
+///         transaction limit and destination checks live HERE, in Solidity.
+///         A backend firewall may pre-check, but nothing this contract
+///         rejects can ever move funds.
+///
+///         Security model: the agent NEVER holds the owner's key. Agents pay
+///         from the escrow's own funds under authority granted by the owner.
+///         `pay()` can be called by anyone (frontend, backend relayer, or the
+///         agent) — it does not matter, because the authority state is checked
+///         entirely on-chain.
 contract PayVeraEscrow {
-    enum Status { None, PaymentRequired, Authorized, Delivered, Verified, Settled, Failed, Refunded }
+    address public owner;                 // human who funds + grants authority
+    address public merchant;              // payment recipient (provider)
+    uint256 public budget;                // total authorized spending (wei)
+    uint256 public spent;                 // cumulative paid out
+    uint256 public maxTransaction;        // per-tx ceiling (wei)
+    bool public authorityActive;
 
-    struct Intent {
-        address payer;          // agent's controller (human) — agent itself has NO key
-        address merchant;
-        uint256 amount;         // wei
-        bytes32 deliveryHash;   // SHA-256 commitment of the delivered artifact (VERA)
-        Status status;
-        bool exists;
+    mapping(address => bool) public authorizedAgents;   // registered agent controller addresses
+    mapping(bytes32 => bool) public usedKeys;           // idempotency keys — retry can never double-charge
+
+    event AuthorityGranted(address indexed owner, uint256 budget, uint256 maxTransaction, address merchant);
+    event AgentAuthorized(address indexed agent);
+    event AgentRevoked(address indexed agent);
+    event Paid(bytes32 indexed idempotencyKey, address indexed agent, uint256 amount, uint256 totalSpent);
+    event HardCapBlocked(address indexed caller, uint256 requested, uint256 remaining);
+
+    error NotOwner();
+    error AgentNotAuthorized();
+    error AuthorityInactive();
+    error ExceedsMaxTransaction(uint256 requested, uint256 max);
+    error ExceedsRemainingBudget(uint256 requested, uint256 remaining);
+    error InsufficientContractBalance(uint256 requested, uint256 balance);
+    error DuplicateKey();
+    error ZeroAddress();
+    error TransferFailed();
+
+    modifier onlyOwner() { if (msg.sender != owner) revert NotOwner(); _; }
+
+    constructor(address _merchant) {
+        if (_merchant == address(0)) revert ZeroAddress();
+        owner = msg.sender;
+        merchant = _merchant;
+        authorityActive = true;
     }
 
-    /// @notice payer => idempotencyKey => intent id. Retry with the same key is a no-op.
-    mapping(address => mapping(bytes32 => uint256)) public intentOfKey;
-    /// @notice hard lifetime budget per payer. Enforced in authorize() — no override path.
-    mapping(address => uint256) public budgetCap;
-    mapping(address => uint256) public spent;
-
-    uint256 public nextId = 1;
-    mapping(uint256 => Intent) public intents;
-
-    event BudgetSet(address indexed payer, uint256 cap);
-    event IntentCreated(uint256 indexed id, address indexed payer, bytes32 indexed idempotencyKey, uint256 amount);
-    event Authorized(uint256 indexed id, uint256 amount, uint256 totalSpent);
-    event Verified(uint256 indexed id, bytes32 deliveryHash);
-    event Settled(uint256 indexed id, uint256 amount);
-    event BlockedBudget(address indexed payer, uint256 requested, uint256 cap, uint256 spent);
-
-    error BudgetExceeded(uint256 requested, uint256 cap, uint256 spent);
-    error DuplicateIntent(uint256 existingId);
-    error WrongStatus(uint256 id, Status expected);
-    error NotPayer(uint256 id);
-
-    /// @notice Owner (the human, not the agent) sets the hard cap. enforcement: HARD_CAP.
-    function setBudgetCap(uint256 cap) external {
-        budgetCap[msg.sender] = cap;
-        emit BudgetSet(msg.sender, cap);
+    /// @notice Owner funds the escrow: deposited wei becomes the authoritative budget.
+    function fund() external payable onlyOwner {
+        budget = address(this).balance;
+        authorityActive = true;
+        emit AuthorityGranted(owner, budget, maxTransaction, merchant);
     }
 
-    /// @notice Idempotent create: same (payer, key) returns the SAME intent, never a new charge.
-    function createIntent(bytes32 idempotencyKey, address merchant, uint256 amount) external returns (uint256 id) {
-        uint256 existing = intentOfKey[msg.sender][idempotencyKey];
-        if (existing != 0) revert DuplicateIntent(existing);
-        id = nextId++;
-        intents[id] = Intent(msg.sender, merchant, amount, bytes32(0), Status.PaymentRequired, true);
-        intentOfKey[msg.sender][idempotencyKey] = id;
-        emit IntentCreated(id, msg.sender, idempotencyKey, amount);
+    /// @notice Owner sets per-tx ceiling. Only here, only by owner.
+    function setMaxTransaction(uint256 amount) external onlyOwner {
+        maxTransaction = amount;
     }
 
-    /// @notice Budget check happens ON-CHAIN at authorization. The agent cannot skip it:
-    ///         authorize() is the only path to Delivered/Verified/Settled.
-    function authorize(uint256 id) external {
-        Intent storage it = intents[id];
-        if (!it.exists) revert WrongStatus(id, Status.None);
-        if (msg.sender != it.payer) revert NotPayer(id);
-        if (it.status != Status.PaymentRequired) revert WrongStatus(id, it.status);
-        uint256 total = spent[it.payer] + it.amount;
-        if (total > budgetCap[it.payer]) {
-            emit BlockedBudget(it.payer, it.amount, budgetCap[it.payer], spent[it.payer]);
-            revert BudgetExceeded(it.amount, budgetCap[it.payer], spent[it.payer]);
+    /// @notice Owner registers an agent controller address. Agent has NO owner key.
+    function authorizeAgent(address agent) external onlyOwner {
+        authorizedAgents[agent] = true;
+        emit AgentAuthorized(agent);
+    }
+
+    function revokeAgent(address agent) external onlyOwner {
+        authorizedAgents[agent] = false;
+        emit AgentRevoked(agent);
+    }
+
+    /// @notice Owner can pause authority (kill switch).
+    function setAuthorityActive(bool active) external onlyOwner {
+        authorityActive = active;
+    }
+
+    /// @notice Remaining budget — derived from chain state, nothing to trust off-chain.
+    function remaining() external view returns (uint256) {
+        return budget - spent;
+    }
+
+    /// @notice Agent-initiated payment. THE ON-CHAIN ENFORCEMENT BOUNDARY:
+    ///         every check below is Solidity — no frontend value is trusted.
+    ///         Callable by an authorized agent controller (or owner relaying).
+    function pay(
+        bytes32 idempotencyKey,
+        uint256 amount,
+        address destination
+    ) external {
+        if (!authorityActive) revert AuthorityInactive();
+        if (!authorizedAgents[msg.sender] && msg.sender != owner) revert AgentNotAuthorized();
+        if (usedKeys[idempotencyKey]) revert DuplicateKey();                 // no double charge, ever
+        if (amount > maxTransaction) revert ExceedsMaxTransaction(amount, maxTransaction);
+        uint256 rem = budget - spent;
+        if (amount > rem) revert ExceedsRemainingBudget(amount, rem);        // HARD CAP — cannot be bypassed
+        if (amount > address(this).balance) revert InsufficientContractBalance(amount, address(this).balance);
+        if (destination == address(0)) revert ZeroAddress();
+
+        usedKeys[idempotencyKey] = true;
+        spent += amount;                                                     // authoritative accounting
+
+        (bool sent, ) = destination.call{value: amount}("");
+        if (!sent) revert TransferFailed();
+        emit Paid(idempotencyKey, msg.sender, amount, spent);
+    }
+
+    /// @notice Direct-contract-attack probe: view wrapper mirroring pay()'s checks.
+    function checkPayment(uint256 amount) external view returns (string memory verdict) {
+        if (amount > maxTransaction) return "EXCEEDS_MAX_TRANSACTION";
+        if (amount > budget - spent) return "EXCEEDS_REMAINING_BUDGET";
+        if (amount > address(this).balance) return "INSUFFICIENT_BALANCE";
+        return "WOULD_SUCCEED";
+    }
+
+    receive() external payable {
+        if (msg.sender != owner) {
+            budget = address(this).balance;
         }
-        it.status = Status.Authorized;
-        emit Authorized(id, it.amount, total);
     }
-
-    /// @notice VERA: delivery is proven by committing the artifact hash, not trusting a claim.
-    function markDelivered(uint256 id, bytes32 deliveryHash) external {
-        Intent storage it = intents[id];
-        if (!it.exists) revert WrongStatus(id, Status.None);
-        if (msg.sender != it.payer) revert NotPayer(id);
-        if (it.status != Status.Authorized) revert WrongStatus(id, it.status);
-        require(deliveryHash != bytes32(0), "empty hash");
-        it.deliveryHash = deliveryHash;
-        it.status = Status.Delivered;
-    }
-
-    /// @notice VERA verification: recomputable on-chain by comparing commitments.
-    function verifyDelivery(uint256 id, bytes32 recomputedHash) external view returns (bool ok) {
-        Intent storage it = intents[id];
-        return it.status == Status.Delivered && it.deliveryHash == recomputedHash;
-    }
-
-    /// @notice Settle after verification passes. Budget spent is incremented once, here.
-    function settle(uint256 id, address payable merchant) external {
-        Intent storage it = intents[id];
-        if (!it.exists) revert WrongStatus(id, Status.None);
-        if (msg.sender != it.payer) revert NotPayer(id);
-        if (it.status != Status.Delivered) revert WrongStatus(id, it.status);
-        spent[it.payer] += it.amount;
-        it.status = Status.Settled;
-        merchant.transfer(it.amount);
-        emit Settled(id, it.amount);
-    }
-
-    receive() external payable {}
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion, useSpring, useTransform, useMotionValue, animate } from 'framer-motion';
+import { ESCROW_BYTECODE } from './escrowBytecode';
+import OnChainTab from './OnChainTab';
 import { api, type AuditEvent, type Dashboard, type Delivery, type Receipt, type Step, type Service, type Txn } from './api';
 import { useTheme } from './useTheme';
 import * as XLSX from 'xlsx';
@@ -42,7 +44,7 @@ function exportBudgetXlsx(policy: { maxBudgetDollars: number; spentDollars: numb
   XLSX.writeFile(wb, `PayVERA-budget-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
-type Tab = 'overview' | 'agent' | 'market' | 'stream' | 'budget' | 'attack' | 'verify' | 'audit' | 'demo';
+type Tab = 'overview' | 'agent' | 'market' | 'stream' | 'budget' | 'attack' | 'onchain' | 'verify' | 'audit' | 'demo';
 
 const money = (n: number | null | undefined) => `$${(n ?? 0).toFixed(2)}`;
 
@@ -70,6 +72,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'market', label: 'Marketplace' },
   { id: 'attack', label: 'Attack Lab' },
+  { id: 'onchain', label: 'On-Chain' },
   { id: 'verify', label: 'Verification' },
   { id: 'stream', label: 'Transactions' },
   { id: 'budget', label: 'Budget Sheet' },
@@ -89,6 +92,18 @@ export default function App() {
   const [attackAmount, setAttackAmount] = useState('8');
   const [attackResult, setAttackResult] = useState<any>(null);
   const [labResult, setLabResult] = useState<any>(null);
+  // On-chain wallet state (real MetaMask via viem — no keys handled in app code)
+  const [wallet, setWallet] = useState<{ address: string; chainId: number; balance?: number } | null>(null);
+  const [walletErr, setWalletErr] = useState<string | null>(null);
+  const [chain, setChain] = useState<{ contractAddress: string | null; owner: string | null; merchant: string | null; budgetWei: bigint | null; spentWei: bigint | null; maxTxWei: bigint | null; balanceWei: bigint | null; active: boolean | null } | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [chainTx, setChainTx] = useState<{ hash: string; status: string; label: string } | null>(null);
+  const [contractAddress, setContractAddress] = useState<string | null>(localStorage.getItem('pp-escrow'));
+  const [merchantInput, setMerchantInput] = useState<string>(localStorage.getItem('pp-merchant') ?? '');
+  const [fundAmount, setFundAmount] = useState('0.01');
+  const [payAmount, setPayAmount] = useState('0.002');
+  const [chainBusy, setChainBusy] = useState<string | null>(null);
+  const [onchainErr, setOnchainErr] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [lastRetry, setLastRetry] = useState<{ requestId: string; idempotencyKey: string } | null>(null);
   // Apple Pay-style sheet state
@@ -422,6 +437,109 @@ export default function App() {
             ))}
           </div>
         )}
+
+        {tab === 'onchain' && (() => {
+          const chainErr = (e: any) => setOnchainErr(e?.code === 4001 ? 'Rejected in MetaMask.' : String(e?.message ?? e));
+          const readChain = async () => {
+            if (!contractAddress) return;
+            try {
+              const W = await import('./wallet');
+              const pc = W.publicClient();
+              const [owner, merchant, budgetWei, spentWei, maxTxWei, active, bal] = await Promise.all([
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'owner' }),
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'merchant' }),
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'budget' }),
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'spent' }),
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'maxTransaction' }),
+                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'authorityActive' }),
+                pc.getBalance({ address: contractAddress as `0x${string}` }),
+              ]);
+              setChain({ contractAddress, owner: owner as string, merchant: merchant as string, budgetWei: budgetWei as bigint, spentWei: spentWei as bigint, maxTxWei: maxTxWei as bigint, balanceWei: bal as bigint, active: active as boolean });
+            } catch (e) { setOnchainErr(String((e as any)?.message ?? e)); }
+          };
+          if (contractAddress && !chain && wallet) { readChain(); }
+          return (
+          <OnChainTab
+            wallet={wallet} walletErr={walletErr ?? onchainErr} chain={chain} deploying={deploying} chainTx={chainTx} busy={busy}
+            contractAddress={contractAddress} merchantInput={merchantInput} fundAmount={fundAmount} payAmount={payAmount} chainBusy={chainBusy}
+            setMerchantInput={setMerchantInput} setFundAmount={setFundAmount} setPayAmount={setPayAmount}
+            onConnect={async () => {
+              setWalletErr(null); setOnchainErr(null);
+              try {
+                const { connectWallet, ensureSepolia, hasWallet, publicClient, walletBalance, short } = await import('./wallet');
+                if (!hasWallet()) { setWalletErr('MetaMask not installed — install the MetaMask browser extension and reload.'); return; }
+                const w = await connectWallet();
+                await ensureSepolia();
+                const pc = publicClient();
+                const bal = await walletBalance(w.address);
+                setWallet({ address: w.address, chainId: 11155111, balance: Number(bal) / 1e18 });
+              } catch (e: any) { chainErr(e); }
+            }}
+            onDeploy={async () => {
+              setDeploying(true); setChainTx(null); setOnchainErr(null);
+              try {
+                const W = await import('./wallet');
+                if (!merchantInput.startsWith('0x') || merchantInput.length !== 42) throw new Error('Enter the merchant address (0x…) first.');
+                localStorage.setItem('pp-merchant', merchantInput);
+                const wc = W.walletClient();
+                const [account] = await wc.getAddresses();
+                const hash = await wc.deployContract({ abi: W.PAYVERA_ABI as any, account, args: [merchantInput], bytecode: ESCROW_BYTECODE });
+                setChainTx({ hash, status: 'PENDING', label: 'Deploy PayVeraEscrow on Sepolia' });
+                const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
+                setChainTx({ hash, status: rcpt.status.toUpperCase(), label: 'Deploy PayVeraEscrow on Sepolia' });
+                if (rcpt.status === 'success' && rcpt.contractAddress) {
+                  setContractAddress(rcpt.contractAddress as string);
+                  localStorage.setItem('pp-escrow', rcpt.contractAddress as string);
+                }
+              } catch (e: any) { chainErr(e); } finally { setDeploying(false); }
+            }}
+            onFund={async () => {
+              setChainBusy('fund'); setChainTx(null); setOnchainErr(null);
+              try {
+                const W = await import('./wallet');
+                const wc = W.walletClient();
+                const [account] = await wc.getAddresses();
+                const hash = await wc.sendTransaction({ account, to: contractAddress as `0x${string}`, value: W.eth(fundAmount) });
+                setChainTx({ hash, status: 'PENDING', label: `Fund escrow ${fundAmount} ETH` });
+                const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
+                setChainTx({ hash, status: rcpt.status.toUpperCase(), label: `Fund escrow ${fundAmount} ETH` });
+                if (rcpt.status === 'success') await readChain();
+              } catch (e: any) { chainErr(e); } finally { setChainBusy(null); }
+            }}
+            onSetMaxTx={async () => {
+              setChainBusy('maxtx'); setOnchainErr(null);
+              try {
+                const W = await import('./wallet');
+                const wc = W.walletClient();
+                const [account] = await wc.getAddresses();
+                const hash = await wc.writeContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'setMaxTransaction', args: [W.eth(payAmount)], account });
+                setChainTx({ hash, status: 'PENDING', label: `Set max-tx ${payAmount} ETH` });
+                const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
+                setChainTx({ hash, status: rcpt.status.toUpperCase(), label: `Set max-tx ${payAmount} ETH` });
+                if (rcpt.status === 'success') await readChain();
+              } catch (e: any) { chainErr(e); } finally { setChainBusy(null); }
+            }}
+            onPay={async () => {
+              setChainBusy('pay'); setChainTx(null); setOnchainErr(null);
+              try {
+                const W = await import('./wallet');
+                const wc = W.walletClient();
+                const [account] = await wc.getAddresses();
+                const key = ('0x' + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('')) as `0x${string}`;
+                const hash = await wc.writeContract({
+                  address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'pay',
+                  args: [key, W.eth(payAmount), (chain?.merchant ?? merchantInput) as `0x${string}`], account,
+                });
+                setChainTx({ hash, status: 'PENDING', label: `Agent payment ${payAmount} ETH → merchant` });
+                const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
+                setChainTx({ hash, status: rcpt.status.toUpperCase(), label: `Agent payment ${payAmount} ETH → merchant` });
+                if (rcpt.status === 'success') await readChain();
+              } catch (e: any) { chainErr(e); } finally { setChainBusy(null); }
+            }}
+            onRefresh={readChain}
+          />
+          );
+        })()}
 
         {tab === 'attack' && (
           <>
