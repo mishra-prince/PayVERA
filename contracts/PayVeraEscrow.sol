@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title PayProofEscrow
-/// @notice Minimal on-chain settlement layer for PayProof x VERA (ONE HACK 2026 W3A-1).
+/// @title PayVeraEscrow
+/// @notice Minimal on-chain settlement layer for PayVERA (ONE HACK 2026 W3A-1).
 ///         Mirrors the off-chain enforcement engine: a hard per-agent budget cap that
 ///         CANNOT be bypassed by the agent, idempotent payment intents (retry can never
 ///         double-charge), and VERA-style delivery proof via SHA-256 commitment.
 ///         The off-chain engine (server/src/engine.ts) is the source of truth for the
 ///         demo; this contract is the optional §18 settlement path.
-contract PayProofEscrow {
+contract PayVeraEscrow {
     enum Status { None, PaymentRequired, Authorized, Delivered, Verified, Settled, Failed, Refunded }
 
     struct Intent {

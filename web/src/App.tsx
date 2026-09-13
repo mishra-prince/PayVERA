@@ -173,7 +173,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-pp-green/15 border border-pp-green/40 flex items-center justify-center font-mono font-bold text-pp-green">PP</div>
             <div>
-              <div className="font-bold leading-tight">PayProof <span className="text-pp-mut">×</span> VERA</div>
+              <div className="font-bold leading-tight">PayVERA</div>
               <div className="text-[11px] text-pp-mut">Verified Agent Commerce — W3A-1</div>
             </div>
           </div>
@@ -360,7 +360,7 @@ export default function App() {
                     <div className="font-bold">{receipt.service ?? 'Custom spend'}</div>
                     <Badge s={receipt.finalStatus} />
                   </div>
-                  <Block title="Authorization (PayProof)">
+                  <Block title="Authorization (budget cap)">
                     <Row k="Budget" v={money(receipt.authorization.budgetDollars)} />
                     <Row k="Spent before" v={money(receipt.authorization.spentBeforeDollars)} />
                     <Row k="Requested" v={money(receipt.authorization.requestedDollars)} />
@@ -500,7 +500,7 @@ export default function App() {
       </main>
 
       <footer className="max-w-7xl mx-auto px-5 pb-10 pt-2 text-[11px] text-pp-mut">
-        PayProof protects the money. VERA protects the work. · Local deterministic demo · x402-compatible HTTP 402 flow
+        PayVERA protects your money and proves the work. · Local deterministic demo · x402-compatible HTTP 402 flow
       </footer>
     </div>
   );
