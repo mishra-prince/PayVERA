@@ -15,6 +15,11 @@ declare global {
 
 export const PAYVERA_ABI = [
   {
+    type: 'constructor',
+    inputs: [{ name: '_merchant', type: 'address' }],
+    stateMutability: 'nonpayable',
+  },
+  {
     type: 'function', name: 'pay', stateMutability: 'nonpayable',
     inputs: [
       { name: 'idempotencyKey', type: 'bytes32' },
