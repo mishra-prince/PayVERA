@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type AuditEvent, type Dashboard, type Delivery, type Receipt, type Step } from './api';
+import { AnimatePresence, motion, useSpring, useTransform, useMotionValue, animate } from 'framer-motion';
+import { api, type AuditEvent, type Dashboard, type Delivery, type Receipt, type Step, type Service } from './api';
 
 type Tab = 'overview' | 'agent' | 'market' | 'stream' | 'attack' | 'verify' | 'audit' | 'demo';
 
@@ -47,6 +48,13 @@ export default function App() {
   const [attackResult, setAttackResult] = useState<any>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [lastRetry, setLastRetry] = useState<{ requestId: string; idempotencyKey: string } | null>(null);
+  // Apple Pay-style sheet state
+  const [sheet, setSheet] = useState<
+    | null
+    | { phase: 'confirm'; service: Service }
+    | { phase: 'processing'; service: Service; promise: Promise<any> }
+    | { phase: 'done'; service: Service; ok: boolean; charged: number; verdict: string | null }
+  >(null);
 
   const refresh = useCallback(async () => {
     const [d, a, dl] = await Promise.all([api.dashboard(), api.audit(), api.deliveries()]);
@@ -93,6 +101,30 @@ export default function App() {
       await refresh();
       return res;
     });
+
+  // Apple Pay-style flow: confirm sheet -> processing -> done, backed by the real API
+  const buyWithSheet = (s: Service) => {
+    setSheet({ phase: 'confirm', service: s });
+  };
+
+  const confirmSheetBuy = () => {
+    if (!sheet || sheet.phase !== 'confirm') return;
+    const service = sheet.service;
+    const p = (async () => {
+      const res = await api.buy(service.id);
+      logSteps(res.steps);
+      await refresh();
+      return res;
+    })();
+    setSheet({ phase: 'processing', service, promise: p });
+    p.then((res: any) => {
+      const verdict = res?.receipt?.verification?.verdict ?? res?.receipt?.finalStatus ?? 'VERIFIED';
+      setSheet({ phase: 'done', service, ok: true, charged: res?.chargedDollars ?? service.priceDollars, verdict });
+      if (res?.outcome === 'NETWORK_FAILURE') setLastRetry({ requestId: res.requestId, idempotencyKey: res.idempotencyKey });
+    }).catch((e) => {
+      setSheet({ phase: 'done', service, ok: false, charged: 0, verdict: String(e instanceof Error ? e.message : e) });
+    });
+  };
 
   const demoRetry = () =>
     guard(async () => {
@@ -199,23 +231,55 @@ export default function App() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${tab === t.id ? 'bg-pp-green/15 text-pp-green' : 'text-pp-mut hover:text-pp-ink hover:bg-white/5'}`}
+            className={`relative px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${tab === t.id ? 'text-pp-green' : 'text-pp-mut hover:text-pp-ink hover:bg-white/5'}`}
           >
-            {t.label}
+            {tab === t.id && (
+              <motion.span
+                layoutId="tab-pill"
+                className="absolute inset-0 rounded-lg bg-pp-green/15"
+                transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+              />
+            )}
+            <span className="relative z-10">{t.label}</span>
           </button>
         ))}
       </nav>
 
       {err && <div className="max-w-7xl mx-auto px-5 mt-3"><div className="panel border-pp-red/40 p-3 text-pp-red text-sm">{err}</div></div>}
 
-      <main className="max-w-7xl mx-auto px-5 py-5 space-y-5">
+      <main className="max-w-7xl mx-auto px-5 py-5">
+        <AnimatePresence mode="wait">
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+          className="space-y-5"
+        >
         {tab === 'overview' && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Stat label="Hard Budget" value={money(policy?.maxBudgetDollars)} accent="text-pp-ink" />
-              <Stat label="Spent" value={money(policy?.spentDollars)} accent="text-pp-amber" />
-              <Stat label="Remaining" value={money(policy?.remainingDollars)} accent="text-pp-green" />
-              <Stat label="Blocked Attempts" value={String(counts?.blockedAttempts ?? 0)} accent="text-pp-red" />
+              {[
+                { label: 'Hard Budget', value: policy?.maxBudgetDollars ?? 0, accent: 'text-pp-ink', isMoney: true },
+                { label: 'Spent', value: policy?.spentDollars ?? 0, accent: 'text-pp-amber', isMoney: true },
+                { label: 'Remaining', value: policy?.remainingDollars ?? 0, accent: 'text-pp-green', isMoney: true },
+                { label: 'Blocked Attempts', value: counts?.blockedAttempts ?? 0, accent: 'text-pp-red', isMoney: false },
+              ].map((st, i) => (
+                <motion.div
+                  key={st.label}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 26 }}
+                >
+                  <div className="panel p-4">
+                    <div className="label">{st.label}</div>
+                    <div className={`text-2xl font-bold mt-1 ${st.accent}`}>
+                      {st.isMoney ? <CountUp value={st.value} format={money} /> : <CountUp value={st.value} format={(n) => String(Math.round(n))} />}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
             </div>
 
             <div className="panel p-5">
@@ -224,7 +288,11 @@ export default function App() {
                 <div className="font-mono text-sm">{util}%</div>
               </div>
               <div className="h-3 rounded-full bg-pp-line overflow-hidden">
-                <div className={`h-full ${util >= 100 ? 'bg-pp-red' : util >= 60 ? 'bg-pp-amber' : 'bg-pp-green'}`} style={{ width: `${Math.min(util, 100)}%` }} />
+                <motion.div
+                  className={`h-full rounded-full ${util >= 100 ? 'bg-pp-red' : util >= 60 ? 'bg-pp-amber' : 'bg-pp-green'}`}
+                  animate={{ width: `${Math.min(util, 100)}%` }}
+                  transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+                />
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5">
                 <Mini label="Settled payments" value={String(counts?.settledPayments ?? 0)} />
@@ -266,7 +334,7 @@ export default function App() {
                 </div>
                 <p className="text-sm text-pp-mut mt-3 flex-1">{s.description}</p>
                 <div className="mt-4 flex gap-2">
-                  <button className="btn-primary" onClick={() => buy(s.id)} disabled={busy}>Buy via Agent</button>
+                  <button className="btn-primary" onClick={() => buyWithSheet(s)} disabled={busy}>Buy via Agent</button>
                   <button
                     className="btn-ghost"
                     disabled={busy}
@@ -458,7 +526,7 @@ export default function App() {
               <div className="panel p-5">
                 <div className="label mb-3">Guided Demo</div>
                 <div className="grid grid-cols-2 gap-2">
-                  <button className="btn-primary" onClick={() => services[0] && buy(services[0].id)} disabled={busy || !services[0]}>1 · Buy Service ($2)</button>
+                  <button className="btn-primary" onClick={() => services[0] && buyWithSheet(services[0])} disabled={busy || !services[0]}>1 · Buy Service ($2)</button>
                   <button className="btn-ghost" onClick={demoRetry} disabled={busy}>2 · Retry Same Request</button>
                   <button className="btn-danger" onClick={attack} disabled={busy}>3 · Attempt Overspend</button>
                   <button className="btn-violet" onClick={() => deliveries[0] && verify(deliveries[0].id)} disabled={busy || deliveries.length === 0}>4 · Verify Delivery</button>
@@ -474,7 +542,11 @@ export default function App() {
                   <div className="font-mono text-sm text-pp-green">{money(policy?.remainingDollars)} left of {money(policy?.maxBudgetDollars)}</div>
                 </div>
                 <div className="h-3 rounded-full bg-pp-line overflow-hidden mt-2">
-                  <div className={`h-full ${util >= 100 ? 'bg-pp-red' : util >= 60 ? 'bg-pp-amber' : 'bg-pp-green'}`} style={{ width: `${Math.min(util, 100)}%` }} />
+                  <motion.div
+                    className={`h-full rounded-full ${util >= 100 ? 'bg-pp-red' : util >= 60 ? 'bg-pp-amber' : 'bg-pp-green'}`}
+                    animate={{ width: `${Math.min(util, 100)}%` }}
+                    transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+                  />
                 </div>
               </div>
             </div>
@@ -485,19 +557,39 @@ export default function App() {
                 <span className="chip bg-white/10 text-pp-mut">{busy ? 'RUNNING' : 'IDLE'}</span>
               </div>
               <div className="font-mono text-[12px] space-y-1 max-h-[520px] overflow-y-auto">
+                <AnimatePresence initial={false}>
                 {log.map((l, i) => (
-                  <div key={i} className="flex gap-2">
+                  <motion.div
+                    key={`${l.t}-${i}`}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex gap-2"
+                  >
                     <span className="text-pp-mut shrink-0">{l.t}</span>
                     <span className={`shrink-0 ${l.kind.includes('BLOCK') || l.kind.includes('FAIL') || l.kind === 'ERROR' ? 'text-pp-red' : l.kind.includes('VERIFIED') || l.kind.includes('NO_SECOND') ? 'text-pp-green' : 'text-pp-amber'}`}>[{l.kind}]</span>
                     <span>{l.text}</span>
-                  </div>
+                  </motion.div>
                 ))}
+                </AnimatePresence>
                 {log.length === 0 && <div className="text-pp-mut">Waiting for actions…</div>}
               </div>
             </div>
           </div>
         )}
+        </motion.div>
+        </AnimatePresence>
       </main>
+
+      <AnimatePresence>
+        {sheet && (
+          <ApplePaySheet
+            sheet={sheet}
+            policy={policy ? { remainingDollars: policy.remainingDollars, maxBudgetDollars: policy.maxBudgetDollars } : null}
+            onClose={() => setSheet(null)}
+            onConfirm={confirmSheetBuy}
+          />
+        )}
+      </AnimatePresence>
 
       <footer className="max-w-7xl mx-auto px-5 pb-10 pt-2 text-[11px] text-pp-mut">
         PayVERA protects your money and proves the work. · Local deterministic demo · x402-compatible HTTP 402 flow
@@ -538,6 +630,188 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
     <div className="border border-pp-line rounded-lg p-3">
       <div className="label mb-2">{title}</div>
       <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+// ---------- Apple Pay-style sheet ----------
+
+function CountUp({ value, format }: { value: number; format: (n: number) => string }) {
+  const [display, setDisplay] = useState(value);
+  useEffect(() => {
+    const c = animate(display, value, { duration: 0.6, ease: [0.32, 0.72, 0, 1], onUpdate: (v) => setDisplay(v) });
+    return () => c.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return <>{format(display)}</>;
+}
+
+function ApplePaySheet({
+  sheet,
+  policy,
+  onClose,
+  onConfirm,
+}: {
+  sheet: NonNullable<Parameters<typeof SheetBody>[0]['sheet']>;
+  policy: { remainingDollars: number; maxBudgetDollars: number } | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={sheet.phase === 'processing' ? undefined : onClose} />
+      <motion.div
+        className="relative w-full sm:max-w-sm bg-[#0d1117] border border-pp-line rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%', transition: { duration: 0.25, ease: [0.32, 0, 1, 1] } }}
+        transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+      >
+        <SheetBody sheet={sheet} policy={policy} onClose={onClose} onConfirm={onConfirm} />
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function SheetBody({
+  sheet,
+  policy,
+  onClose,
+  onConfirm,
+}: {
+  sheet:
+    | { phase: 'confirm'; service: Service }
+    | { phase: 'processing'; service: Service; promise: Promise<any> }
+    | { phase: 'done'; service: Service; ok: boolean; charged: number; verdict: string | null };
+  policy: { remainingDollars: number; maxBudgetDollars: number } | null;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const s = sheet.service;
+  return (
+    <div className="p-5">
+      {/* header */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-[11px] uppercase tracking-widest text-pp-mut font-semibold">PayVERA · Agent Payment</span>
+        {sheet.phase !== 'processing' && (
+          <button onClick={onClose} className="text-pp-mut hover:text-pp-ink text-lg leading-none px-2" aria-label="Close">×</button>
+        )}
+        {sheet.phase === 'processing' && <span className="chip bg-pp-blue/15 text-pp-blue">ENFORCED</span>}
+      </div>
+
+      {/* merchant row */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-xl bg-pp-violet/15 border border-pp-violet/40 flex items-center justify-center font-bold text-pp-violet">
+          {s.name.slice(0, 1)}
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold">{s.name}</div>
+          <div className="text-[11px] text-pp-mut">{s.providerName}</div>
+        </div>
+        <div className="text-xl font-bold"><CountUp value={s.priceDollars} format={money} /></div>
+      </div>
+
+      {/* budget check line — the enforcement message */}
+      <div className="rounded-xl bg-pp-panel border border-pp-line p-3 text-[12px] space-y-1.5 mb-4 font-mono">
+        <div className="flex justify-between">
+          <span className="text-pp-mut">Budget cap</span>
+          <span className="text-pp-ink">{money(policy?.maxBudgetDollars)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-pp-mut">Server check</span>
+          <span className={(policy?.remainingDollars ?? 0) >= s.priceDollars ? 'text-pp-green' : 'text-pp-red'}>
+            {(policy?.remainingDollars ?? 0) >= s.priceDollars ? '✓ within cap' : '✗ exceeds cap'}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-pp-mut">After charge</span>
+          <span className="text-pp-ink">{money(Math.max(0, (policy?.remainingDollars ?? 0) - s.priceDollars))}</span>
+        </div>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {sheet.phase === 'confirm' && (
+          <motion.button
+            key="confirm"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            onClick={onConfirm}
+            className="w-full py-3.5 rounded-xl font-semibold text-[15px] bg-[#e8eef6] text-black hover:brightness-95 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+          >
+            <span className="font-black tracking-tight"> Pay </span><span className="text-pp-mut">|</span> Pay <span className="font-mono">{money(s.priceDollars)}</span> with Agent
+          </motion.button>
+        )}
+
+        {sheet.phase === 'processing' && (
+          <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="py-3">
+            <div className="flex items-center gap-3 justify-center mb-3">
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((i) => (
+                  <motion.span
+                    key={i}
+                    className="w-2 h-2 rounded-full bg-pp-green"
+                    animate={{ opacity: [0.25, 1, 0.25] }}
+                    transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.18 }}
+                  />
+                ))}
+              </div>
+              <span className="text-sm text-pp-mut">Enforcement engine running — 402 · pay · deliver · verify</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-pp-line overflow-hidden">
+              <motion.div
+                className="h-full bg-pp-green rounded-full"
+                initial={{ width: '0%' }}
+                animate={{ width: '88%' }}
+                transition={{ duration: 2.2, ease: 'easeOut' }}
+              />
+            </div>
+            <div className="mt-3 text-[11px] text-pp-mut text-center">The agent cannot override this. Server decides.</div>
+          </motion.div>
+        )}
+
+        {sheet.phase === 'done' && (
+          <motion.div key="done" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-2">
+            <div className="flex justify-center mb-3">
+              <motion.div
+                className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl font-bold ${sheet.ok ? 'bg-pp-green/15 border-2 border-pp-green' : 'bg-pp-red/15 border-2 border-pp-red'}`}
+                initial={{ scale: 0.5 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+              >
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.12, type: 'spring', stiffness: 500, damping: 20 }}
+                  className={sheet.ok ? 'text-pp-green' : 'text-pp-red'}
+                >
+                  {sheet.ok ? '✓' : '✕'}
+                </motion.span>
+              </motion.div>
+            </div>
+            <div className={`font-bold text-lg ${sheet.ok ? 'text-pp-green' : 'text-pp-red'}`}>
+              {sheet.ok ? 'Verified & Settled' : 'Blocked'}
+            </div>
+            <div className="text-sm text-pp-mut mt-1 font-mono">
+              {sheet.ok ? `${money(sheet.charged)} charged · ${sheet.verdict}` : sheet.verdict}
+            </div>
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              onClick={onClose}
+              className="mt-4 w-full py-3 rounded-xl font-semibold bg-pp-line text-pp-ink hover:bg-white/10"
+            >
+              Done
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
