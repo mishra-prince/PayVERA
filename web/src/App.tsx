@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnimatePresence, motion, useSpring, useTransform, useMotionValue, animate } from 'framer-motion';
 import { ESCROW_BYTECODE } from './escrowBytecode';
+import { COMPILED_ABI } from './escrowAbi';
+// Use the solc-compiled ABI everywhere (single source of truth, includes constructor).
+const ABI = COMPILED_ABI as any;
 import OnChainTab from './OnChainTab';
 import { api, type AuditEvent, type Dashboard, type Delivery, type Receipt, type Step, type Service, type Txn } from './api';
 import { useTheme } from './useTheme';
@@ -445,12 +448,12 @@ export default function App() {
             try {
               const W = await import('./wallet');
               const [owner, merchant, budgetWei, spentWei, maxTxWei, active, bal] = await Promise.all([
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'owner' })),
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'merchant' })),
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'budget' })),
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'spent' })),
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'maxTransaction' })),
-                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'authorityActive' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'owner' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'merchant' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'budget' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'spent' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'maxTransaction' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'authorityActive' })),
                 W.readWithFallback((pc) => pc.getBalance({ address: contractAddress as `0x${string}` })),
               ]);
               setChain({ contractAddress, owner: owner as string, merchant: merchant as string, budgetWei: budgetWei as bigint, spentWei: spentWei as bigint, maxTxWei: maxTxWei as bigint, balanceWei: bal as bigint, active: active as boolean });
@@ -481,7 +484,7 @@ export default function App() {
                 localStorage.setItem('pp-merchant', merchantInput);
                 const wc = W.walletClient();
                 const [account] = await wc.getAddresses();
-                const hash = await wc.deployContract({ abi: W.PAYVERA_ABI as any, account, args: [merchantInput], bytecode: ESCROW_BYTECODE });
+                const hash = await wc.deployContract({ abi: ABI as any, account, args: [merchantInput], bytecode: ESCROW_BYTECODE });
                 setChainTx({ hash, status: 'PENDING', label: 'Deploy PayVeraEscrow on Sepolia' });
                 const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
                 setChainTx({ hash, status: rcpt.status.toUpperCase(), label: 'Deploy PayVeraEscrow on Sepolia' });
@@ -497,7 +500,7 @@ export default function App() {
                 const W = await import('./wallet');
                 const wc = W.walletClient();
                 const [account] = await wc.getAddresses();
-                const hash = await wc.sendTransaction({ account, to: contractAddress as `0x${string}`, value: W.eth(fundAmount) });
+                const hash = await wc.writeContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'fund', account, value: W.eth(fundAmount), chain: null as any });
                 setChainTx({ hash, status: 'PENDING', label: `Fund escrow ${fundAmount} ETH` });
                 const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
                 setChainTx({ hash, status: rcpt.status.toUpperCase(), label: `Fund escrow ${fundAmount} ETH` });
@@ -510,7 +513,7 @@ export default function App() {
                 const W = await import('./wallet');
                 const wc = W.walletClient();
                 const [account] = await wc.getAddresses();
-                const hash = await wc.writeContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'setMaxTransaction', args: [W.eth(payAmount)], account });
+                const hash = await wc.writeContract({ address: contractAddress as `0x${string}`, abi: ABI, functionName: 'setMaxTransaction', args: [W.eth(payAmount)], account });
                 setChainTx({ hash, status: 'PENDING', label: `Set max-tx ${payAmount} ETH` });
                 const rcpt = await W.publicClient().waitForTransactionReceipt({ hash });
                 setChainTx({ hash, status: rcpt.status.toUpperCase(), label: `Set max-tx ${payAmount} ETH` });
@@ -525,7 +528,7 @@ export default function App() {
                 const [account] = await wc.getAddresses();
                 const key = ('0x' + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('')) as `0x${string}`;
                 const hash = await wc.writeContract({
-                  address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'pay',
+                  address: contractAddress as `0x${string}`, abi: ABI, functionName: 'pay',
                   args: [key, W.eth(payAmount), (chain?.merchant ?? merchantInput) as `0x${string}`], account,
                 });
                 setChainTx({ hash, status: 'PENDING', label: `Agent payment ${payAmount} ETH → merchant` });

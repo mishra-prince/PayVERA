@@ -117,8 +117,8 @@ contract PayVeraEscrow {
     }
 
     receive() external payable {
-        if (msg.sender != owner) {
-            budget = address(this).balance;
-        }
+        // Any ETH received (including plain transfers from the owner) counts
+        // as budget — the contract balance is the single source of truth.
+        budget = address(this).balance;
     }
 }
