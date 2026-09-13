@@ -2,13 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --pp-glass: rgba(245, 245, 247, 0.8);
+}
+
 @layer components {
-  .panel { @apply bg-pp-panel border border-pp-line rounded-xl; }
-  .btn { @apply px-4 py-2 rounded-lg font-semibold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed; }
-  .btn-primary { @apply btn bg-pp-green text-pp-bg hover:brightness-110; }
+  .panel { @apply bg-pp-panel rounded-apple border border-pp-line; }
+  /* Apple signature action: Action Blue full pill (DESIGN.md button-primary) */
+  .btn { @apply px-[22px] py-[11px] rounded-full font-normal text-[15px] leading-none transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-pp-blue text-white hover:bg-pp-blueFocus; }
   .btn-danger { @apply btn bg-pp-red text-white hover:brightness-110; }
-  .btn-ghost { @apply btn bg-pp-line text-pp-ink hover:bg-white/10; }
+  .btn-ghost { @apply btn bg-transparent text-pp-blue border border-pp-line hover:bg-pp-blue/5; }
   .btn-violet { @apply btn bg-pp-violet text-white hover:brightness-110; }
-  .chip { @apply inline-block px-2 py-0.5 rounded text-[11px] font-mono font-semibold; }
-  .label { @apply text-[11px] uppercase tracking-wider text-pp-mut font-semibold; }
+  /* Apple Pay black button: black capsule, white  Pay glyph (HIG apple-pay.md › Button styles) */
+  .btn-apay { @apply btn bg-black text-white hover:brightness-125; }
+  .chip { @apply inline-block px-2 py-0.5 rounded-md text-[11px] font-medium; }
+  .label { @apply text-[11px] uppercase tracking-[0.06em] text-pp-mut font-medium; }
+  /* Frosted sticky bar: Parchment 80% + blur(20px) saturate(180%) */
+  .frosted { @apply backdrop-blur-[20px]; background: var(--pp-glass); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.022em; /* Apple body letterspacing */
 }

@@ -13,8 +13,8 @@ const STATUS_STYLE: Record<string, string> = {
   DELIVERED: 'bg-pp-blue/15 text-pp-blue',
   AUTHORIZED: 'bg-pp-blue/15 text-pp-blue',
   PAYMENT_REQUIRED: 'bg-pp-amber/15 text-pp-amber',
-  REQUESTED: 'bg-white/10 text-pp-mut',
-  UNVERIFIED: 'bg-white/10 text-pp-mut',
+  REQUESTED: 'bg-pp-bg text-pp-mut',
+  UNVERIFIED: 'bg-pp-bg text-pp-mut',
   REJECTED_BUDGET: 'bg-pp-red/15 text-pp-red',
   REJECTED_DUPLICATE: 'bg-pp-red/15 text-pp-red',
   FAILED: 'bg-pp-red/15 text-pp-red',
@@ -23,7 +23,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function Badge({ s }: { s: string }) {
-  return <span className={`chip ${STATUS_STYLE[s] ?? 'bg-white/10 text-pp-ink'}`}>{s}</span>;
+  return <span className={`chip ${STATUS_STYLE[s] ?? 'bg-pp-bg text-pp-ink'}`}>{s}</span>;
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -199,14 +199,14 @@ export default function App() {
   const util = policy?.utilizationPct ?? 0;
 
   return (
-    <div className="min-h-screen text-pp-ink">
-      <header className="border-b border-pp-line bg-pp-panel/60 backdrop-blur sticky top-0 z-10">
+    <div className="min-h-screen text-pp-ink bg-pp-bg">
+      <header className="frosted border-b border-pp-line/70 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-5 py-3 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-pp-green/15 border border-pp-green/40 flex items-center justify-center font-mono font-bold text-pp-green">PP</div>
-            <div>
-              <div className="font-bold leading-tight">PayVERA</div>
-              <div className="text-[11px] text-pp-mut">Verified Agent Commerce — W3A-1</div>
+            <div className="w-9 h-9 rounded-[10px] bg-pp-blue text-white flex items-center justify-center font-semibold text-[15px]" style={{ letterSpacing: '-0.02em' }}>P</div>
+          <div>
+              <div className="font-semibold text-[17px] leading-tight tracking-[-0.02em]">PayVERA</div>
+              <div className="text-[12px] text-pp-mut">Verified Agent Commerce — W3A-1</div>
             </div>
           </div>
           <div className="flex-1" />
@@ -231,12 +231,12 @@ export default function App() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`relative px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${tab === t.id ? 'text-pp-green' : 'text-pp-mut hover:text-pp-ink hover:bg-white/5'}`}
+            className={`relative px-3.5 py-1.5 rounded-full text-[14px] font-medium transition-colors ${tab === t.id ? 'text-pp-ink' : 'text-pp-mut hover:text-pp-ink'}`}
           >
             {tab === t.id && (
               <motion.span
                 layoutId="tab-pill"
-                className="absolute inset-0 rounded-lg bg-pp-green/15"
+                className="absolute inset-0 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] border border-pp-line/60"
                 transition={{ type: 'spring', stiffness: 500, damping: 38 }}
               />
             )}
@@ -554,7 +554,7 @@ export default function App() {
             <div className="panel p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="label">Live Event Console</div>
-                <span className="chip bg-white/10 text-pp-mut">{busy ? 'RUNNING' : 'IDLE'}</span>
+                <span className="chip bg-pp-bg text-pp-mut">{busy ? 'RUNNING' : 'IDLE'}</span>
               </div>
               <div className="font-mono text-[12px] space-y-1 max-h-[520px] overflow-y-auto">
                 <AnimatePresence initial={false}>
@@ -666,7 +666,7 @@ function ApplePaySheet({
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={sheet.phase === 'processing' ? undefined : onClose} />
       <motion.div
-        className="relative w-full sm:max-w-sm bg-[#0d1117] border border-pp-line rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
+        className="relative w-full sm:max-w-sm bg-white rounded-t-[18px] sm:rounded-[18px] shadow-[0_10px_40px_rgba(0,0,0,0.18)] overflow-hidden"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%', transition: { duration: 0.25, ease: [0.32, 0, 1, 1] } }}
@@ -697,34 +697,34 @@ function SheetBody({
     <div className="p-5">
       {/* header */}
       <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] uppercase tracking-widest text-pp-mut font-semibold">PayVERA · Agent Payment</span>
+        <span className="text-[12px] tracking-[-0.01em] text-pp-mut font-medium">PayVERA · Agent Payment</span>
         {sheet.phase !== 'processing' && (
           <button onClick={onClose} className="text-pp-mut hover:text-pp-ink text-lg leading-none px-2" aria-label="Close">×</button>
         )}
-        {sheet.phase === 'processing' && <span className="chip bg-pp-blue/15 text-pp-blue">ENFORCED</span>}
+        {sheet.phase === 'processing' && <span className="chip bg-pp-blue/10 text-pp-blue">ENFORCED</span>}
       </div>
 
       {/* merchant row */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-xl bg-pp-violet/15 border border-pp-violet/40 flex items-center justify-center font-bold text-pp-violet">
+        <div className="w-10 h-10 rounded-[11px] bg-pp-blue/10 flex items-center justify-center font-semibold text-pp-blue">
           {s.name.slice(0, 1)}
         </div>
         <div className="flex-1">
-          <div className="font-semibold">{s.name}</div>
-          <div className="text-[11px] text-pp-mut">{s.providerName}</div>
+          <div className="font-semibold text-[15px]">{s.name}</div>
+          <div className="text-[12px] text-pp-mut">{s.providerName}</div>
         </div>
-        <div className="text-xl font-bold"><CountUp value={s.priceDollars} format={money} /></div>
+        <div className="text-[22px] font-semibold tracking-[-0.02em]"><CountUp value={s.priceDollars} format={money} /></div>
       </div>
 
       {/* budget check line — the enforcement message */}
-      <div className="rounded-xl bg-pp-panel border border-pp-line p-3 text-[12px] space-y-1.5 mb-4 font-mono">
+      <div className="rounded-[11px] bg-pp-bg p-3 text-[12px] space-y-1.5 mb-4">
         <div className="flex justify-between">
           <span className="text-pp-mut">Budget cap</span>
           <span className="text-pp-ink">{money(policy?.maxBudgetDollars)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-pp-mut">Server check</span>
-          <span className={(policy?.remainingDollars ?? 0) >= s.priceDollars ? 'text-pp-green' : 'text-pp-red'}>
+          <span className={(policy?.remainingDollars ?? 0) >= s.priceDollars ? 'text-pp-green font-medium' : 'text-pp-red font-medium'}>
             {(policy?.remainingDollars ?? 0) >= s.priceDollars ? '✓ within cap' : '✗ exceeds cap'}
           </span>
         </div>
@@ -742,9 +742,13 @@ function SheetBody({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             onClick={onConfirm}
-            className="w-full py-3.5 rounded-xl font-semibold text-[15px] bg-[#e8eef6] text-black hover:brightness-95 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-[12px] font-semibold text-[15px] bg-black text-white hover:brightness-[1.35] active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
           >
-            <span className="font-black tracking-tight"> Pay </span><span className="text-pp-mut">|</span> Pay <span className="font-mono">{money(s.priceDollars)}</span> with Agent
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden style={{ marginTop: -1 }}>
+              <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.03 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.1zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/>
+            </svg>
+            <span className="font-semibold tracking-[-0.01em]">Pay</span>
+            <span className="opacity-70 font-normal">{money(s.priceDollars)}</span>
           </motion.button>
         )}
 
@@ -800,12 +804,12 @@ function SheetBody({
             <div className="text-sm text-pp-mut mt-1 font-mono">
               {sheet.ok ? `${money(sheet.charged)} charged · ${sheet.verdict}` : sheet.verdict}
             </div>
-            <motion.button
+              <motion.button
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 }}
               onClick={onClose}
-              className="mt-4 w-full py-3 rounded-xl font-semibold bg-pp-line text-pp-ink hover:bg-white/10"
+              className="mt-4 w-full py-3 rounded-[12px] font-semibold bg-pp-bg text-pp-blue hover:brightness-[0.98]"
             >
               Done
             </motion.button>
