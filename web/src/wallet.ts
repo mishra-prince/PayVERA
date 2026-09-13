@@ -125,15 +125,39 @@ export function walletClient(): any {
   return createWalletClient({ chain: sepolia, transport: custom(window.ethereum) });
 }
 
+const SEPOLIA_RPCS = [
+  'https://ethereum-sepolia-rpc.publicnode.com',
+  'https://1rpc.io/sepolia',
+  'https://rpc.sepolia.org',
+];
+
+let rpcIdx = 0;
 export function publicClient(): any {
-  return createPublicClient({ chain: sepolia, transport: http('https://rpc.sepolia.org') });
+  return createPublicClient({
+    chain: sepolia,
+    transport: http(SEPOLIA_RPCS[rpcIdx % SEPOLIA_RPCS.length], { retryCount: 2, timeout: 12_000 }),
+  });
+}
+
+/** Read a value from the contract, falling back across public RPCs. */
+export async function readWithFallback(fn: (pc: any) => Promise<any>): Promise<any> {
+  let lastErr: unknown;
+  for (let i = 0; i < SEPOLIA_RPCS.length; i++) {
+    try {
+      rpcIdx = i;
+      return await fn(publicClient());
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
 }
 
 export const eth = (n: string) => parseEther(n, 'wei' as any) as unknown as bigint;
 export const fmtEth = (wei: bigint) => Number(formatEther(wei));
 
 export async function walletBalance(address: string): Promise<bigint> {
-  return (await publicClient().getBalance({ address })) as bigint;
+  return readWithFallback((pc) => pc.getBalance({ address }));
 }
 
 export function txUrl(hash: string): string {

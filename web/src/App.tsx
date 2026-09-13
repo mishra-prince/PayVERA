@@ -444,15 +444,14 @@ export default function App() {
             if (!contractAddress) return;
             try {
               const W = await import('./wallet');
-              const pc = W.publicClient();
               const [owner, merchant, budgetWei, spentWei, maxTxWei, active, bal] = await Promise.all([
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'owner' }),
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'merchant' }),
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'budget' }),
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'spent' }),
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'maxTransaction' }),
-                pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'authorityActive' }),
-                pc.getBalance({ address: contractAddress as `0x${string}` }),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'owner' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'merchant' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'budget' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'spent' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'maxTransaction' })),
+                W.readWithFallback((pc) => pc.readContract({ address: contractAddress as `0x${string}`, abi: W.PAYVERA_ABI, functionName: 'authorityActive' })),
+                W.readWithFallback((pc) => pc.getBalance({ address: contractAddress as `0x${string}` })),
               ]);
               setChain({ contractAddress, owner: owner as string, merchant: merchant as string, budgetWei: budgetWei as bigint, spentWei: spentWei as bigint, maxTxWei: maxTxWei as bigint, balanceWei: bal as bigint, active: active as boolean });
             } catch (e) { setOnchainErr(String((e as any)?.message ?? e)); }
@@ -466,11 +465,10 @@ export default function App() {
             onConnect={async () => {
               setWalletErr(null); setOnchainErr(null);
               try {
-                const { connectWallet, ensureSepolia, hasWallet, publicClient, walletBalance, short } = await import('./wallet');
+                const { connectWallet, ensureSepolia, hasWallet, walletBalance } = await import('./wallet');
                 if (!hasWallet()) { setWalletErr('MetaMask not installed — install the MetaMask browser extension and reload.'); return; }
                 const w = await connectWallet();
                 await ensureSepolia();
-                const pc = publicClient();
                 const bal = await walletBalance(w.address);
                 setWallet({ address: w.address, chainId: 11155111, balance: Number(bal) / 1e18 });
               } catch (e: any) { chainErr(e); }
